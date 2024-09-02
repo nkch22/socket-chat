@@ -35,7 +35,8 @@ struct addrinfo *get_addrinfo_list() {
     return res;
 }
 
-int get_listener_socket(struct addrinfo *list) {
+int get_listener_socket() {
+    struct addrinfo *list = get_addrinfo_list();
     int listener_socket;
     for (struct addrinfo *p = list; p != NULL; p = p->ai_next) {
         listener_socket = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
@@ -67,13 +68,12 @@ int get_listener_socket(struct addrinfo *list) {
 }
 
 int main(void) {
-    struct addrinfo *res = get_addrinfo_list();
-    int listener_socket = get_listener_socket(res);
+    int listener_socket = get_listener_socket();
 
     // listen first working socket
     struct sockaddr_storage sockaddr = {0};
     socklen_t sockaddr_size = sizeof sockaddr;
-    char message[] = "Hello, world!\n";
+    char buffer[100];
     while (1) {
         int connection_sockfd = accept(listener_socket, (struct sockaddr *) &sockaddr, &sockaddr_size);
         if (connection_sockfd == -1) {
@@ -81,10 +81,19 @@ int main(void) {
             continue;
         }
 
-        ssize_t sent = send(connection_sockfd, message, sizeof message, 0);
+        ssize_t received = recv(connection_sockfd, buffer, sizeof buffer, 0);
+        if (received == -1) {
+            handle_warning("recv");
+        }
+
+        printf("received message from client - %s\n", buffer);
+
+        ssize_t sent = send(connection_sockfd, buffer, sizeof buffer, 0);
         if (sent == -1) {
             handle_warning("send");
         }
+
+        printf("sent message back to client - %s\n", buffer);
 
         if (close(connection_sockfd) == -1) {
             handle_warning("close");
