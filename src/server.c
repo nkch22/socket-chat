@@ -1,8 +1,10 @@
+#include <errno.h>
 #include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #define PORT "5555"
@@ -18,6 +20,26 @@
     do {                                                                                                               \
         perror(msg);                                                                                                   \
     } while (0)
+
+void sigchld_handler() {
+    // waitpid() might overwrite errno, so we save and restore it:
+    int saved_errno = errno;
+
+    while (waitpid(-1, NULL, WNOHANG) > 0)
+        ;
+
+    errno = saved_errno;
+}
+
+void register_sigchld_handler() {
+    struct sigaction sa;
+    sa.sa_handler = sigchld_handler; // reap all dead processes
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    if (sigaction(SIGCHLD, &sa, NULL) == -1) {
+        handle_error("sigaction");
+    }
+}
 
 struct addrinfo *get_addrinfo_list() {
     struct addrinfo hints = {0};
@@ -45,6 +67,10 @@ int get_listener_socket() {
             continue;
         }
 
+        const int enable = 1;
+        if (setsockopt(listener_socket, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &enable, sizeof(int)) < 0)
+            handle_error("setsockopt(SO_REUSEADDR) failed");
+
         socklen_t addrlen = sizeof *p->ai_addr;
         if (bind(listener_socket, p->ai_addr, addrlen) != 0) {
             handle_warning("bind");
@@ -66,9 +92,6 @@ int get_listener_socket() {
                         "result list\n");
         exit(EXIT_FAILURE);
     }
-    const int enable = 1;
-    if (setsockopt(listener_socket, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &enable, sizeof(int)) < 0)
-        handle_error("setsockopt(SO_REUSEADDR) failed");
 
     return listener_socket;
 }
@@ -76,9 +99,11 @@ int get_listener_socket() {
 int main(void) {
     int listener_socket = get_listener_socket();
 
-    struct sockaddr_storage client= {0};
-    socklen_t sockaddr_size = sizeof client;
+    register_sigchld_handler();
+
     char buffer[100];
+    struct sockaddr_storage client = {0};
+    socklen_t sockaddr_size = sizeof client;
     while (1) {
         int connection_sockfd = accept(listener_socket, (struct sockaddr *) &client, &sockaddr_size);
         if (connection_sockfd == -1) {
@@ -86,23 +111,28 @@ int main(void) {
             continue;
         }
 
-        ssize_t received = recv(connection_sockfd, buffer, sizeof buffer, 0);
-        if (received == -1) {
-            handle_warning("recv");
+        if (!fork()) {
+            close(listener_socket);
+            ssize_t received = recv(connection_sockfd, buffer, sizeof buffer, 0);
+            if (received == -1) {
+                handle_warning("recv");
+            }
+
+            printf("received message from client - %s\n", buffer);
+
+            ssize_t sent = send(connection_sockfd, buffer, sizeof buffer, 0);
+            if (sent == -1) {
+                handle_warning("send");
+            }
+
+            printf("sent message back to client - %s\n", buffer);
+
+            if (close(connection_sockfd) == -1) {
+                handle_warning("close");
+            }
+            exit(0);
         }
-
-        printf("received message from client - %s\n", buffer);
-
-        ssize_t sent = send(connection_sockfd, buffer, sizeof buffer, 0);
-        if (sent == -1) {
-            handle_warning("send");
-        }
-
-        printf("sent message back to client - %s\n", buffer);
-
-        if (close(connection_sockfd) == -1) {
-            handle_warning("close");
-        }
+        close(connection_sockfd);
     }
 
     return 0;
