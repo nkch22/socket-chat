@@ -59,6 +59,8 @@ int get_listener_socket() {
         break;
     }
 
+    freeaddrinfo(list);
+
     if (listener_socket == -1) {
         fprintf(stderr, "Couldn't find appropriate address info from getaddrinfo "
                         "result list\n");

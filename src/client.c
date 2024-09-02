@@ -53,6 +53,8 @@ int get_connection_socket() {
         break;
     }
 
+    freeaddrinfo(list);
+
     if (connection_socket == -1) {
         fprintf(stderr, "Could not connect to the server\n");
         exit(EXIT_FAILURE);
