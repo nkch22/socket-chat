@@ -64,18 +64,21 @@ int get_listener_socket() {
                         "result list\n");
         exit(EXIT_FAILURE);
     }
+    const int enable = 1;
+    if (setsockopt(listener_socket, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &enable, sizeof(int)) < 0)
+        handle_error("setsockopt(SO_REUSEADDR) failed");
+
     return listener_socket;
 }
 
 int main(void) {
     int listener_socket = get_listener_socket();
 
-    // listen first working socket
-    struct sockaddr_storage sockaddr = {0};
-    socklen_t sockaddr_size = sizeof sockaddr;
+    struct sockaddr_storage client= {0};
+    socklen_t sockaddr_size = sizeof client;
     char buffer[100];
     while (1) {
-        int connection_sockfd = accept(listener_socket, (struct sockaddr *) &sockaddr, &sockaddr_size);
+        int connection_sockfd = accept(listener_socket, (struct sockaddr *) &client, &sockaddr_size);
         if (connection_sockfd == -1) {
             handle_warning("accept");
             continue;
